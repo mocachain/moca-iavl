@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"cosmossdk.io/log"
 	"github.com/stretchr/testify/require"
 
-	db "github.com/cometbft/cometbft-db"
+	dbm "github.com/cosmos/iavl/db"
 	"github.com/cosmos/iavl/fastnode"
 )
 
@@ -51,16 +52,13 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 		keySize   = 16 // before base64-encoding
 		valueSize = 16 // before base64-encoding
 
-		versions          = 32   // number of final versions to generate
-		reloadChance      = 0.1  // chance of tree reload after save
-		deleteChance      = 0.2  // chance of random version deletion after save
-		deleteRangeChance = 0.3  // chance of deleting a version range (DeleteVersionsRange)
-		deleteMultiChance = 0.3  // chance of deleting multiple versions (DeleteVersions)
-		deleteMax         = 5    // max number of versions to delete
-		revertChance      = 0.05 // chance to revert tree to random version with LoadVersionForOverwriting
-		syncChance        = 0.2  // chance of enabling sync writes on tree load
-		cacheChance       = 0.4  // chance of enabling caching
-		cacheSizeMax      = 256  // maximum size of cache (will be random from 1)
+		versions     = 32   // number of final versions to generate
+		reloadChance = 0.1  // chance of tree reload after save
+		deleteChance = 0.2  // chance of random version deletion after save
+		revertChance = 0.05 // chance to revert tree to random version with LoadVersionForOverwriting
+		syncChance   = 0.2  // chance of enabling sync writes on tree load
+		cacheChance  = 0.4  // chance of enabling caching
+		cacheSizeMax = 256  // maximum size of cache (will be random from 1)
 
 		versionOps  = 64  // number of operations (create/update/delete) per version
 		updateRatio = 0.4 // ratio of updates out of all operations
@@ -70,11 +68,11 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 	r := rand.New(rand.NewSource(randSeed))
 
 	// loadTree loads the last persisted version of a tree with random pruning settings.
-	loadTree := func(levelDB db.DB) (tree *MutableTree, version int64, options *Options) { //nolint:unparam
+	loadTree := func(levelDB dbm.DB) (tree *MutableTree, version int64, _ *Options) { //nolint:unparam
 		var err error
-		options = &Options{
-			Sync: r.Float64() < syncChance,
-		}
+
+		sync := r.Float64() < syncChance
+
 		// set the cache size regardless of whether caching is enabled. This ensures we always
 		// call the RNG the same number of times, such that changing settings does not affect
 		// the RNG sequence.
@@ -82,11 +80,10 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 		if !(r.Float64() < cacheChance) {
 			cacheSize = 0
 		}
-		tree, err = NewMutableTreeWithOpts(levelDB, cacheSize, options, false)
-		require.NoError(t, err)
+		tree = NewMutableTree(levelDB, cacheSize, false, log.NewNopLogger(), SyncOption(sync))
 		version, err = tree.Load()
 		require.NoError(t, err)
-		t.Logf("Loaded version %v (sync=%v cache=%v)", version, options.Sync, cacheSize)
+		t.Logf("Loaded version %v (sync=%v cache=%v)", version, sync, cacheSize)
 		return
 	}
 
@@ -102,7 +99,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempdir)
 
-	levelDB, err := db.NewGoLevelDB("leveldb", tempdir)
+	levelDB, err := dbm.NewDB("test", "goleveldb", tempdir)
 	require.NoError(t, err)
 
 	tree, version, _ := loadTree(levelDB)
@@ -163,54 +160,15 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 		// Delete random versions if requested, but never the latest version.
 		if r.Float64() < deleteChance {
 			versions := getMirrorVersions(diskMirrors, memMirrors)
-			switch {
-			case len(versions) < 2:
-
-			case r.Float64() < deleteRangeChance:
-				indexFrom := r.Intn(len(versions) - 1)
-				from := versions[indexFrom]
-				batch := r.Intn(deleteMax)
-				if batch > len(versions[indexFrom:])-2 {
-					batch = len(versions[indexFrom:]) - 2
-				}
-				to := versions[indexFrom+batch] + 1
-				t.Logf("Deleting versions %v-%v", from, to-1)
-				err = tree.DeleteVersionsRange(int64(from), int64(to))
+			if len(versions) > 1 {
+				to := versions[r.Intn(len(versions)-1)]
+				t.Logf("Deleting versions to %v", to)
+				err = tree.DeleteVersionsTo(int64(to))
 				require.NoError(t, err)
-				for version := from; version < to; version++ {
+				for version := versions[0]; version <= to; version++ {
 					delete(diskMirrors, int64(version))
 					delete(memMirrors, int64(version))
 				}
-
-			// adjust probability to take into account probability of range delete not happening
-			case r.Float64() < deleteMultiChance/(1.0-deleteRangeChance):
-				deleteVersions := []int64{}
-				desc := ""
-				batchSize := 1 + r.Intn(deleteMax)
-				if batchSize > len(versions)-1 {
-					batchSize = len(versions) - 1
-				}
-				for _, i := range r.Perm(len(versions) - 1)[:batchSize] {
-					deleteVersions = append(deleteVersions, int64(versions[i]))
-					delete(diskMirrors, int64(versions[i]))
-					delete(memMirrors, int64(versions[i]))
-					if len(desc) > 0 {
-						desc += ","
-					}
-					desc += fmt.Sprintf("%v", versions[i])
-				}
-				t.Logf("Deleting versions %v", desc)
-				err = tree.DeleteVersions(deleteVersions...)
-				require.NoError(t, err)
-
-			default:
-				i := r.Intn(len(versions) - 1)
-				deleteVersion := int64(versions[i])
-				t.Logf("Deleting version %v", deleteVersion)
-				err = tree.DeleteVersion(deleteVersion)
-				require.NoError(t, err)
-				delete(diskMirrors, deleteVersion)
-				delete(memMirrors, deleteVersion)
 			}
 		}
 
@@ -230,7 +188,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 			if len(versions) > 1 {
 				version = int64(versions[r.Intn(len(versions)-1)])
 				t.Logf("Reverting to version %v", version)
-				_, err = tree.LoadVersionForOverwriting(version)
+				err = tree.LoadVersionForOverwriting(version)
 				require.NoError(t, err, "Failed to revert to version %v", version)
 				if m, ok := diskMirrors[version]; ok {
 					mirror = copyMirror(m)
@@ -265,43 +223,14 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 		}
 	}
 
-	// Once we're done, delete all prior versions in random order, make sure all orphans have been
-	// removed, and check that the latest versions matches the mirror.
+	// Once we're done, delete all prior versions.
 	remaining := tree.AvailableVersions()
 	remaining = remaining[:len(remaining)-1]
 
-	switch {
-	case len(remaining) == 0:
-
-	case r.Float64() < deleteRangeChance:
-		t.Logf("Deleting versions %v-%v", remaining[0], remaining[len(remaining)-1])
-		err = tree.DeleteVersionsRange(int64(remaining[0]), int64(remaining[len(remaining)-1]+1))
+	if len(remaining) > 0 {
+		t.Logf("Deleting versions to %v", remaining[len(remaining)-1])
+		err = tree.DeleteVersionsTo(int64(remaining[len(remaining)-1]))
 		require.NoError(t, err)
-
-	// adjust probability to take into account probability of range delete not happening
-	case r.Float64() < deleteMultiChance/(1.0-deleteRangeChance):
-		deleteVersions := []int64{}
-		desc := ""
-		for _, i := range r.Perm(len(remaining)) {
-			deleteVersions = append(deleteVersions, int64(remaining[i]))
-			if len(desc) > 0 {
-				desc += ","
-			}
-			desc += fmt.Sprintf("%v", remaining[i])
-		}
-		t.Logf("Deleting versions %v", desc)
-		err = tree.DeleteVersions(deleteVersions...)
-		require.NoError(t, err)
-
-	default:
-		for len(remaining) > 0 {
-			i := r.Intn(len(remaining))
-			deleteVersion := int64(remaining[i])
-			remaining = append(remaining[:i], remaining[i+1:]...)
-			t.Logf("Deleting version %v", deleteVersion)
-			err = tree.DeleteVersion(deleteVersion)
-			require.NoError(t, err)
-		}
 	}
 
 	require.EqualValues(t, []int{int(version)}, tree.AvailableVersions())
@@ -326,7 +255,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 	}
 	_, _, err = tree.SaveVersion()
 	require.NoError(t, err)
-	err = tree.DeleteVersion(prevVersion)
+	err = tree.DeleteVersionsTo(prevVersion)
 	require.NoError(t, err)
 	assertEmptyDatabase(t, tree)
 	t.Logf("Final version %v deleted, no stray database entries", prevVersion)
@@ -348,9 +277,7 @@ func assertEmptyDatabase(t *testing.T, tree *MutableTree) {
 
 	firstKey := foundKeys[0]
 	secondKey := foundKeys[1]
-
 	require.True(t, strings.HasPrefix(firstKey, metadataKeyFormat.Prefix()))
-	require.True(t, strings.HasPrefix(secondKey, rootKeyFormat.Prefix()))
 
 	require.Equal(t, string(metadataKeyFormat.KeyBytes([]byte(storageVersionKey))), firstKey, "Unexpected storage version key")
 
@@ -361,19 +288,15 @@ func assertEmptyDatabase(t *testing.T, tree *MutableTree) {
 	require.Equal(t, fastStorageVersionValue+fastStorageVersionDelimiter+strconv.Itoa(int(latestVersion)), string(storageVersionValue))
 
 	var foundVersion int64
-	rootKeyFormat.Scan([]byte(secondKey), &foundVersion)
+	nodeKeyFormat.Scan([]byte(secondKey), &foundVersion)
 	require.Equal(t, version, foundVersion, "Unexpected root version")
 }
 
 // Checks that the tree has the given number of orphan nodes.
 func assertOrphans(t *testing.T, tree *MutableTree, expected int) {
-	count := 0
-	err := tree.ndb.traverseOrphans(func(k, v []byte) error {
-		count++
-		return nil
-	})
+	orphans, err := tree.ndb.orphans()
 	require.Nil(t, err)
-	require.EqualValues(t, expected, count, "Expected %v orphans, got %v", expected, count)
+	require.EqualValues(t, expected, len(orphans), "Expected %v orphans, got %v", expected, len(orphans))
 }
 
 // Checks that a version is the maximum mirrored version.
@@ -399,6 +322,9 @@ func assertMirror(t *testing.T, tree *MutableTree, mirror map[string]string, ver
 	// mirror and check with get. This is to exercise both the iteration and Get() code paths.
 	iterated := 0
 	_, err = itree.Iterate(func(key, value []byte) bool {
+		if string(value) != mirror[string(key)] {
+			fmt.Println("missing ", string(key), " ", string(value))
+		}
 		require.Equal(t, string(value), mirror[string(key)], "Invalid value for key %q", key)
 		iterated++
 		return false

@@ -67,7 +67,7 @@ func (i instruction) Execute(tree *MutableTree) {
 	case "SAVE":
 		tree.SaveVersion()
 	case "DELETE":
-		tree.DeleteVersion(i.version)
+		tree.DeleteVersionsTo(i.version)
 	default:
 		panic("Unrecognized op: " + i.op)
 	}
@@ -113,10 +113,9 @@ func TestMutableTreeFuzz(t *testing.T) {
 
 	for size := 5; iterations < maxIterations; size++ {
 		for i := 0; i < progsPerIteration/size; i++ {
-			tree, err := getTestTree(0)
-			require.NoError(t, err)
+			tree := getTestTree(0)
 			program := genRandomProgram(size)
-			err = program.Execute(tree)
+			err := program.Execute(tree)
 			if err != nil {
 				str, err := tree.String()
 				require.Nil(t, err)

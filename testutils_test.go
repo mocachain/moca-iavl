@@ -9,9 +9,10 @@ import (
 	"sort"
 	"testing"
 
-	db "github.com/cometbft/cometbft-db"
+	log "cosmossdk.io/log"
 	"github.com/stretchr/testify/require"
 
+	dbm "github.com/cosmos/iavl/db"
 	"github.com/cosmos/iavl/internal/encoding"
 	iavlrand "github.com/cosmos/iavl/internal/rand"
 )
@@ -41,8 +42,8 @@ func b2i(bz []byte) int {
 }
 
 // Construct a MutableTree
-func getTestTree(cacheSize int) (*MutableTree, error) {
-	return NewMutableTreeWithOpts(db.NewMemDB(), cacheSize, nil, false)
+func getTestTree(cacheSize int) *MutableTree {
+	return NewMutableTree(dbm.NewMemDB(), cacheSize, false, log.NewNopLogger())
 }
 
 // Convenience for a new node
@@ -51,12 +52,12 @@ func N(l, r interface{}) *Node {
 	if _, ok := l.(*Node); ok {
 		left = l.(*Node)
 	} else {
-		left = NewNode(i2b(l.(int)), nil, 0)
+		left = NewNode(i2b(l.(int)), nil)
 	}
 	if _, ok := r.(*Node); ok {
 		right = r.(*Node)
 	} else {
-		right = NewNode(i2b(r.(int)), nil, 0)
+		right = NewNode(i2b(r.(int)), nil)
 	}
 
 	n := &Node{
@@ -71,22 +72,21 @@ func N(l, r interface{}) *Node {
 
 // Setup a deep node
 func T(n *Node) (*MutableTree, error) {
-	t, _ := getTestTree(0)
+	t := getTestTree(0)
 
-	_, _, err := n.hashWithCount()
-	if err != nil {
-		return nil, err
-	}
+	n.hashWithCount(t.version + 1)
 	t.root = n
 	return t, nil
 }
 
 // Convenience for simple printing of keys & tree structure
-func P(n *Node) string {
+func P(n *Node, t *ImmutableTree) string {
 	if n.subtreeHeight == 0 {
 		return fmt.Sprintf("%v", b2i(n.key))
 	}
-	return fmt.Sprintf("(%v %v)", P(n.leftNode), P(n.rightNode))
+	leftNode, _ := n.getLeftNode(t)
+	rightNode, _ := n.getRightNode(t)
+	return fmt.Sprintf("(%v %v)", P(leftNode, t), P(rightNode, t))
 }
 
 type traverser struct {
@@ -164,8 +164,7 @@ func getSortedMirrorKeys(mirror map[string]string) []string {
 func getRandomizedTreeAndMirror(t *testing.T) (*MutableTree, map[string]string) {
 	const cacheSize = 100
 
-	tree, err := getTestTree(cacheSize)
-	require.NoError(t, err)
+	tree := getTestTree(cacheSize)
 
 	mirror := make(map[string]string)
 
@@ -286,7 +285,7 @@ func setupMirrorForIterator(t *testing.T, config *iteratorTestConfig, tree *Muta
 
 // assertIterator confirms that the iterator returns the expected values desribed by mirror in the same order.
 // mirror is a slice containing slices of the form [key, value]. In other words, key at index 0 and value at index 1.
-func assertIterator(t *testing.T, itr db.Iterator, mirror [][]string, ascending bool) {
+func assertIterator(t *testing.T, itr dbm.Iterator, mirror [][]string, ascending bool) {
 	startIdx, endIdx := 0, len(mirror)-1
 	increment := 1
 	mirrorIdx := startIdx
@@ -313,18 +312,16 @@ func assertIterator(t *testing.T, itr db.Iterator, mirror [][]string, ascending 
 }
 
 func BenchmarkImmutableAvlTreeMemDB(b *testing.B) {
-	db, err := db.NewDB("test", db.MemDBBackend, "")
-	require.NoError(b, err)
+	db := dbm.NewMemDB()
 	benchmarkImmutableAvlTreeWithDB(b, db)
 }
 
-func benchmarkImmutableAvlTreeWithDB(b *testing.B, db db.DB) {
+func benchmarkImmutableAvlTreeWithDB(b *testing.B, db dbm.DB) {
 	defer db.Close()
 
 	b.StopTimer()
 
-	t, err := NewMutableTree(db, 100000, false)
-	require.NoError(b, err)
+	t := NewMutableTree(db, 100000, false, log.NewNopLogger())
 
 	value := []byte{}
 	for i := 0; i < 1000000; i++ {

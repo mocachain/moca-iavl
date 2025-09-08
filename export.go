@@ -65,7 +65,7 @@ func (e *Exporter) export(ctx context.Context) {
 		exportNode := &ExportNode{
 			Key:     node.key,
 			Value:   node.value,
-			Version: node.version,
+			Version: node.nodeKey.version,
 			Height:  node.subtreeHeight,
 		}
 
@@ -90,9 +90,8 @@ func (e *Exporter) Next() (*ExportNode, error) {
 // Close closes the exporter. It is safe to call multiple times.
 func (e *Exporter) Close() {
 	e.cancel()
-	// drain channel
 	for range e.ch { //nolint:revive
-	}
+	} // drain channel
 	if e.tree != nil {
 		e.tree.ndb.decrVersionReaders(e.tree.version)
 	}

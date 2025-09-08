@@ -1,17 +1,19 @@
 package benchmarks
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	mrand "math/rand"
 	"os"
 	"runtime"
 	"strings"
 	"testing"
 
+	"cosmossdk.io/log"
 	"github.com/stretchr/testify/require"
 
-	db "github.com/cometbft/cometbft-db"
 	"github.com/cosmos/iavl"
+	dbm "github.com/cosmos/iavl/db"
 )
 
 const historySize = 20
@@ -20,18 +22,17 @@ func randBytes(length int) []byte {
 	key := make([]byte, length)
 	// math.rand.Read always returns err=nil
 	// we do not need cryptographic randomness for this test:
-	rand.Read(key)
+	rand.Read(key) //nolint:errcheck
 	return key
 }
 
-func prepareTree(b *testing.B, db db.DB, size, keyLen, dataLen int) (*iavl.MutableTree, [][]byte) {
-	t, err := iavl.NewMutableTreeWithOpts(db, size, nil, false)
-	require.NoError(b, err)
+func prepareTree(b *testing.B, db dbm.DB, size, keyLen, dataLen int) (*iavl.MutableTree, [][]byte) {
+	t := iavl.NewMutableTree(db, size, false, log.NewNopLogger())
 	keys := make([][]byte, size)
 
 	for i := 0; i < size; i++ {
 		key := randBytes(keyLen)
-		_, err = t.Set(key, randBytes(dataLen))
+		_, err := t.Set(key, randBytes(dataLen))
 		require.NoError(b, err)
 		keys[i] = key
 	}
@@ -42,8 +43,7 @@ func prepareTree(b *testing.B, db db.DB, size, keyLen, dataLen int) (*iavl.Mutab
 
 // commit tree saves a new version and deletes old ones according to historySize
 func commitTree(b *testing.B, t *iavl.MutableTree) {
-	_, err := t.Hash()
-	require.NoError(b, err)
+	t.Hash()
 
 	_, version, err := t.SaveVersion()
 	if err != nil {
@@ -51,7 +51,7 @@ func commitTree(b *testing.B, t *iavl.MutableTree) {
 	}
 
 	if version > historySize {
-		err = t.DeleteVersion(version - historySize)
+		err = t.DeleteVersionsTo(version - historySize)
 		if err != nil {
 			b.Errorf("Can't delete: %v", err)
 		}
@@ -77,7 +77,7 @@ func runKnownQueriesFast(b *testing.B, t *iavl.MutableTree, keys [][]byte) {
 	require.True(b, isFastCacheEnabled)
 	l := int32(len(keys))
 	for i := 0; i < b.N; i++ {
-		q := keys[rand.Int31n(l)]
+		q := keys[mrand.Int31n(l)]
 		_, err := t.Get(q)
 		require.NoError(b, err)
 	}
@@ -119,7 +119,7 @@ func runKnownQueriesSlow(b *testing.B, t *iavl.MutableTree, keys [][]byte) {
 	b.StartTimer()
 	l := int32(len(keys))
 	for i := 0; i < b.N; i++ {
-		q := keys[rand.Int31n(l)]
+		q := keys[mrand.Int31n(l)]
 		index, value, err := itree.GetWithIndex(q)
 		require.NoError(b, err)
 		require.True(b, index >= 0, "the index must not be negative")
@@ -147,7 +147,7 @@ func runIterationSlow(b *testing.B, t *iavl.MutableTree, expectedSize int) {
 	}
 }
 
-func iterate(b *testing.B, itr db.Iterator, expectedSize int) {
+func iterate(b *testing.B, itr dbm.Iterator, expectedSize int) {
 	b.StartTimer()
 	keyValuePairs := make([][][]byte, 0, expectedSize)
 	for i := 0; i < expectedSize && itr.Valid(); i++ {
@@ -176,7 +176,7 @@ func iterate(b *testing.B, itr db.Iterator, expectedSize int) {
 func runUpdate(b *testing.B, t *iavl.MutableTree, dataLen, blockSize int, keys [][]byte) *iavl.MutableTree {
 	l := int32(len(keys))
 	for i := 1; i <= b.N; i++ {
-		key := keys[rand.Int31n(l)]
+		key := keys[mrand.Int31n(l)]
 		_, err := t.Set(key, randBytes(dataLen))
 		require.NoError(b, err)
 		if i%blockSize == 0 {
@@ -216,13 +216,13 @@ func runBlock(b *testing.B, t *iavl.MutableTree, keyLen, dataLen, blockSize int,
 			// 50% insert, 50% update
 			var key []byte
 			if i%2 == 0 {
-				key = keys[rand.Int31n(l)]
+				key = keys[mrand.Int31n(l)]
 			} else {
 				key = randBytes(keyLen)
 			}
 			data := randBytes(dataLen)
 
-			// perform query and write on check and then real
+			// perform query and write on check and then realTree
 			// check.GetFast(key)
 			// check.Set(key, data)
 			_, err := realTree.Get(key)
@@ -259,7 +259,7 @@ func BenchmarkRandomBytes(b *testing.B) {
 }
 
 type benchmark struct {
-	dbType              db.BackendType
+	dbType              string
 	initSize, blockSize int
 	keyLen, dataLen     int
 }
@@ -330,7 +330,7 @@ func runBenchmarks(b *testing.B, benchmarks []benchmark) {
 
 		// prepare a dir for the db and cleanup afterwards
 		dirName := fmt.Sprintf("./%s-db", prefix)
-		if (bb.dbType == db.RocksDBBackend) || (bb.dbType == db.CLevelDBBackend) {
+		if bb.dbType == "rocksdb" {
 			_ = os.Mkdir(dirName, 0o755)
 		}
 
@@ -343,11 +343,11 @@ func runBenchmarks(b *testing.B, benchmarks []benchmark) {
 
 		// note that "" leads to nil backing db!
 		var (
-			d   db.DB
+			d   dbm.DB
 			err error
 		)
 		if bb.dbType != "nodb" {
-			d, err = db.NewDB("test", bb.dbType, dirName)
+			d, err = dbm.NewDB("test", bb.dbType, dirName)
 
 			if err != nil {
 				if strings.Contains(err.Error(), "unknown db_backend") {
@@ -376,7 +376,7 @@ func memUseMB() float64 {
 	return mb
 }
 
-func runSuite(b *testing.B, d db.DB, initSize, blockSize, keyLen, dataLen int) {
+func runSuite(b *testing.B, d dbm.DB, initSize, blockSize, keyLen, dataLen int) {
 	// measure mem usage
 	runtime.GC()
 	init := memUseMB()
