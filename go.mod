@@ -1,6 +1,6 @@
 module github.com/cosmos/iavl
 
-go 1.20
+go 1.23
 
 require (
 	cosmossdk.io/log v1.2.0
@@ -11,7 +11,7 @@ require (
 	github.com/google/btree v1.1.2
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/crypto v0.12.0
-	google.golang.org/protobuf v1.30.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
