@@ -19,6 +19,11 @@ else
 endif
 .PHONY: install
 
+build:
+	@echo "--> Building iaviewer"
+	@go build $(LDFLAGS) ./cmd/iaviewer
+.PHONY: build
+
 test-short:
 	@echo "--> Running go test"
 	@go test ./... $(LDFLAGS) -v --race --short
