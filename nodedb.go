@@ -89,6 +89,8 @@ type nodeDB struct {
 	fastNodeCache       cache.Cache      // Cache for nodes in the fast index that represents only key-value pairs at the latest version.
 	isCommitting        bool             // Flag to indicate that the nodeDB is committing.
 	chCommitting        chan struct{}    // Channel to signal that the committing is done.
+	closeCh             chan struct{}    // Closed to signal pruning goroutine to stop.
+	pruneWg             sync.WaitGroup  // Tracks the pruning goroutine lifecycle.
 }
 
 func newNodeDB(db dbm.DB, cacheSize int, opts Options, lg log.Logger) *nodeDB {
@@ -112,9 +114,11 @@ func newNodeDB(db dbm.DB, cacheSize int, opts Options, lg log.Logger) *nodeDB {
 		versionReaders:      make(map[int64]uint32, 8),
 		storageVersion:      string(storeVersion),
 		chCommitting:        make(chan struct{}, 1),
+		closeCh:             make(chan struct{}),
 	}
 
 	if opts.AsyncPruning {
+		ndb.pruneWg.Add(1)
 		go ndb.startPruning()
 	}
 
@@ -577,21 +581,30 @@ func (ndb *nodeDB) DeleteVersionsFrom(fromVersion int64) error {
 	return nil
 }
 
-// startPruning starts the pruning process.
+// startPruning starts the pruning process. It exits when closeCh is closed.
 func (ndb *nodeDB) startPruning() {
+	defer ndb.pruneWg.Done()
 	for {
 		ndb.mtx.Lock()
 		toVersion := ndb.pruneVersion
 		ndb.mtx.Unlock()
 
 		if toVersion == 0 {
-			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-ndb.closeCh:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
 			continue
 		}
 
 		if err := ndb.deleteVersionsTo(toVersion); err != nil {
 			ndb.logger.Error("Error while pruning", "err", err)
-			time.Sleep(1 * time.Second)
+			select {
+			case <-ndb.closeCh:
+				return
+			case <-time.After(1 * time.Second):
+			}
 			continue
 		}
 
@@ -1092,8 +1105,16 @@ func (ndb *nodeDB) traverseOrphans(prevVersion, curVersion int64, fn func(*Node)
 	return nil
 }
 
-// Close the nodeDB.
+// Close the nodeDB. It signals the pruning goroutine to stop and waits for it to finish.
 func (ndb *nodeDB) Close() error {
+	select {
+	case <-ndb.closeCh:
+		// already closed
+	default:
+		close(ndb.closeCh)
+	}
+	ndb.pruneWg.Wait()
+
 	ndb.mtx.Lock()
 	defer ndb.mtx.Unlock()
 
