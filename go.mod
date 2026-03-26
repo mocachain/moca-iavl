@@ -1,8 +1,6 @@
 module github.com/cosmos/iavl
 
-go 1.23.0
-
-toolchain go1.24.11
+go 1.25.0
 
 require (
 	cosmossdk.io/log v1.6.1
@@ -12,7 +10,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/google/btree v1.1.3
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/crypto v0.26.0
+	golang.org/x/crypto v0.49.0
 	google.golang.org/protobuf v1.33.0
 )
 
@@ -59,9 +57,8 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df // indirect
-	golang.org/x/net v0.25.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.17.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
