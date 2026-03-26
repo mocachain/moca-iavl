@@ -8,7 +8,7 @@ require (
 	cosmossdk.io/log v1.6.1
 	github.com/cosmos/cosmos-db v1.1.3
 	github.com/cosmos/ics23/go v0.11.0
-	github.com/emicklei/dot v1.10.0
+	github.com/emicklei/dot v1.11.0
 	github.com/golang/mock v1.6.0
 	github.com/google/btree v1.1.3
 	github.com/stretchr/testify v1.10.0
