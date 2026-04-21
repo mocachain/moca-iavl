@@ -1097,23 +1097,3 @@ func (tree *MutableTree) Close() error {
 	tree.lastSaved = nil
 	return tree.ndb.Close()
 }
-
-func CloneMutableTree(t *MutableTree) *MutableTree {
-	if t == nil {
-		return nil
-	}
-
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
-
-	clone := &MutableTree{
-		ImmutableTree:            t.ImmutableTree.clone(),
-		lastSaved:                t.ImmutableTree.clone(),
-		unsavedFastNodeAdditions: &sync.Map{},
-		unsavedFastNodeRemovals:  &sync.Map{},
-		ndb:                      t.ndb, // Share the same nodeDB
-		skipFastStorageUpgrade:   true,
-	}
-
-	return clone
-}
