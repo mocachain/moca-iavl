@@ -263,9 +263,10 @@ func (t *ImmutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterato
 // IterateRange makes a callback for all nodes with key between start and end non-inclusive.
 // If either are nil, then it is open on that side (nil, nil is the same as Iterate). The keys and
 // values must not be modified, since they may point to data stored within IAVL.
-func (t *ImmutableTree) IterateRange(start, end []byte, ascending bool, fn func(key []byte, value []byte) bool) (stopped bool) {
+// Returns (stopped, err): err is non-nil if traversal hit an error (e.g. GetNode failure).
+func (t *ImmutableTree) IterateRange(start, end []byte, ascending bool, fn func(key []byte, value []byte) bool) (stopped bool, err error) {
 	if t.root == nil {
-		return false
+		return false, nil
 	}
 	return t.root.traverseInRange(t, start, end, ascending, false, false, func(node *Node) bool {
 		if node.subtreeHeight == 0 {
@@ -278,9 +279,10 @@ func (t *ImmutableTree) IterateRange(start, end []byte, ascending bool, fn func(
 // IterateRangeInclusive makes a callback for all nodes with key between start and end inclusive.
 // If either are nil, then it is open on that side (nil, nil is the same as Iterate). The keys and
 // values must not be modified, since they may point to data stored within IAVL.
-func (t *ImmutableTree) IterateRangeInclusive(start, end []byte, ascending bool, fn func(key, value []byte, version int64) bool) (stopped bool) {
+// Returns (stopped, err): err is non-nil if traversal hit an error (e.g. GetNode failure).
+func (t *ImmutableTree) IterateRangeInclusive(start, end []byte, ascending bool, fn func(key, value []byte, version int64) bool) (stopped bool, err error) {
 	if t.root == nil {
-		return false
+		return false, nil
 	}
 	return t.root.traverseInRange(t, start, end, ascending, true, false, func(node *Node) bool {
 		if node.subtreeHeight == 0 {

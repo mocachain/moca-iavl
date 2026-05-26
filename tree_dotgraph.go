@@ -50,7 +50,7 @@ func WriteDOTGraph(w io.Writer, tree *ImmutableTree, paths []PathToLeaf) {
 
 	// TODO: handle error
 	tree.root.hashWithCount(tree.version + 1)
-	tree.root.traverse(tree, true, func(node *Node) bool {
+	_, _ = tree.root.traverse(tree, true, func(node *Node) bool {
 		graphNode := &graphNode{
 			Attrs: map[string]string{},
 			Hash:  fmt.Sprintf("%x", node.hash),

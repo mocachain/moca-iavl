@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 )
 
 // exportBufferSize is the number of nodes to buffer in the exporter. It improves throughput by
@@ -34,6 +35,27 @@ type Exporter struct {
 	tree   *ImmutableTree
 	ch     chan *ExportNode
 	cancel context.CancelFunc
+
+	// errMu guards err. err is set from the producer goroutine (export) when
+	// the underlying traversal fails to load a node; Next() returns it before
+	// signalling ErrorExportDone so the consumer cannot mistake a truncated
+	// snapshot for a complete one. See cosmos/iavl#1041.
+	errMu sync.Mutex
+	err   error
+}
+
+func (e *Exporter) setErr(err error) {
+	e.errMu.Lock()
+	defer e.errMu.Unlock()
+	if e.err == nil {
+		e.err = err
+	}
+}
+
+func (e *Exporter) getErr() error {
+	e.errMu.Lock()
+	defer e.errMu.Unlock()
+	return e.err
 }
 
 // NewExporter creates a new Exporter. Callers must call Close() when done.
@@ -61,7 +83,7 @@ func newExporter(tree *ImmutableTree) (*Exporter, error) {
 
 // export exports nodes
 func (e *Exporter) export(ctx context.Context) {
-	e.tree.root.traversePost(e.tree, true, func(node *Node) bool {
+	_, err := e.tree.root.traversePost(e.tree, true, func(node *Node) bool {
 		exportNode := &ExportNode{
 			Key:     node.key,
 			Value:   node.value,
@@ -76,13 +98,25 @@ func (e *Exporter) export(ctx context.Context) {
 			return true
 		}
 	})
+	if err != nil {
+		e.setErr(err)
+	}
 	close(e.ch)
 }
 
 // Next fetches the next exported node, or returns ExportDone when done.
+//
+// If the underlying traversal hit an error (e.g. nodeDB.GetNode failed to
+// load a child node), Next returns that error before signalling
+// ErrorExportDone. Historically this loop silently truncated the export
+// (see cosmos/iavl#1041) — consumers MUST treat a non-nil error here as
+// a failed export, not a complete one.
 func (e *Exporter) Next() (*ExportNode, error) {
 	if exportNode, ok := <-e.ch; ok {
 		return exportNode, nil
+	}
+	if err := e.getErr(); err != nil {
+		return nil, err
 	}
 	return nil, ErrorExportDone
 }

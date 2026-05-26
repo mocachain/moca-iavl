@@ -1,6 +1,8 @@
 package iavl
 
 import (
+	"bytes"
+	"errors"
 	"math"
 	"math/rand"
 	"testing"
@@ -355,6 +357,80 @@ func TestExporter_DeleteVersionErrors(t *testing.T) {
 	exporter.Close()
 	err = tree.DeleteVersionsTo(2)
 	require.NoError(t, err)
+}
+
+// TestExporter_SilentTruncationRegression is a regression test for cosmos/iavl#1041:
+// when (*Node).traverseInRange historically encountered a GetNode failure for a child
+// node it silently exited the loop and (*Exporter).export closed the channel as if the
+// snapshot were complete. Consumers then read ErrorExportDone and treated a truncated
+// snapshot as valid.
+//
+// We construct a tree (forcing multi-node structure), SaveVersion, then snapshot the
+// underlying memdb into a fresh memdb minus exactly one inner node nodeKey row, then
+// LoadVersion and Export. We expect Next() to surface a non-nil error before returning
+// ErrorExportDone (or instead of it).
+func TestExporter_SilentTruncationRegression(t *testing.T) {
+	srcDB := dbm.NewMemDB()
+	tree := NewMutableTree(srcDB, 0, false, log.NewNopLogger())
+	// Build a small tree — enough leaves to guarantee an internal branch node.
+	for i := 0; i < 8; i++ {
+		_, err := tree.Set([]byte{byte('a' + i)}, []byte{byte(i)})
+		require.NoError(t, err)
+	}
+	_, _, err := tree.SaveVersion()
+	require.NoError(t, err)
+
+	// Copy srcDB into dstDB, deliberately skipping exactly one inner-tree nodeKey row
+	// (any non-root inner node whose absence will block traversal). We target the
+	// nodeKey rows under nodeKeyFormat ('s' prefix). The root's nodeKey is (v=1, n=1)
+	// — we delete a child key like (v=1, n=2). If that exact key doesn't exist (tree
+	// shape changed), this test will become a no-op and we'll catch it via require.
+	dstDB := dbm.NewMemDB()
+	it, err := srcDB.Iterator(nil, nil)
+	require.NoError(t, err)
+	defer it.Close()
+
+	// The nodeKey we will skip: (version=1, nonce=2). nodeKeyFormat is 's' + 8B BE version + 4B BE nonce.
+	targetNodeKey := (&NodeKey{version: 1, nonce: 2}).GetKey()
+	skip := nodeKeyFormat.Key(targetNodeKey)
+
+	skipped := false
+	for ; it.Valid(); it.Next() {
+		k := it.Key()
+		if bytes.Equal(k, skip) {
+			skipped = true
+			continue
+		}
+		require.NoError(t, dstDB.Set(k, it.Value()))
+	}
+	require.True(t, skipped, "test setup: target inner nodeKey (v=1, n=2) not found in srcDB; tree shape may have changed")
+
+	// Open the corrupted DB and try to Export. Drain Next() and assert a non-nil
+	// non-ErrorExportDone error surfaces. Without the fix, all we'd see is
+	// ErrorExportDone after a truncated stream.
+	dstTree := NewMutableTree(dstDB, 0, false, log.NewNopLogger())
+	_, err = dstTree.Load()
+	require.NoError(t, err)
+
+	itree, err := dstTree.GetImmutable(1)
+	require.NoError(t, err)
+	exporter, err := itree.Export()
+	require.NoError(t, err)
+	defer exporter.Close()
+
+	sawErr := false
+	for {
+		_, e := exporter.Next()
+		if e == nil {
+			continue
+		}
+		if errors.Is(e, ErrorExportDone) {
+			break
+		}
+		sawErr = true
+		break
+	}
+	require.True(t, sawErr, "expected Export to surface a non-nil error when a referenced node is missing, but it silently completed")
 }
 
 func BenchmarkExport(b *testing.B) {
