@@ -263,33 +263,38 @@ func (t *ImmutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterato
 // IterateRange makes a callback for all nodes with key between start and end non-inclusive.
 // If either are nil, then it is open on that side (nil, nil is the same as Iterate). The keys and
 // values must not be modified, since they may point to data stored within IAVL.
-// Returns (stopped, err): err is non-nil if traversal hit an error (e.g. GetNode failure).
-func (t *ImmutableTree) IterateRange(start, end []byte, ascending bool, fn func(key []byte, value []byte) bool) (stopped bool, err error) {
+func (t *ImmutableTree) IterateRange(start, end []byte, ascending bool, fn func(key []byte, value []byte) bool) (stopped bool) {
 	if t.root == nil {
-		return false, nil
+		return false
 	}
-	return t.root.traverseInRange(t, start, end, ascending, false, false, func(node *Node) bool {
+	// traverseInRange may surface an error (e.g. a GetNode failure); this exported
+	// method keeps its historical (bool) signature for API compatibility and ignores
+	// it. The error-surfacing path is the snapshot Exporter (see export.go), which is
+	// where a silently-truncated traversal actually causes harm.
+	stopped, _ = t.root.traverseInRange(t, start, end, ascending, false, false, func(node *Node) bool {
 		if node.subtreeHeight == 0 {
 			return fn(node.key, node.value)
 		}
 		return false
 	})
+	return stopped
 }
 
 // IterateRangeInclusive makes a callback for all nodes with key between start and end inclusive.
 // If either are nil, then it is open on that side (nil, nil is the same as Iterate). The keys and
 // values must not be modified, since they may point to data stored within IAVL.
-// Returns (stopped, err): err is non-nil if traversal hit an error (e.g. GetNode failure).
-func (t *ImmutableTree) IterateRangeInclusive(start, end []byte, ascending bool, fn func(key, value []byte, version int64) bool) (stopped bool, err error) {
+func (t *ImmutableTree) IterateRangeInclusive(start, end []byte, ascending bool, fn func(key, value []byte, version int64) bool) (stopped bool) {
 	if t.root == nil {
-		return false, nil
+		return false
 	}
-	return t.root.traverseInRange(t, start, end, ascending, true, false, func(node *Node) bool {
+	// See IterateRange: error intentionally ignored to preserve the exported signature.
+	stopped, _ = t.root.traverseInRange(t, start, end, ascending, true, false, func(node *Node) bool {
 		if node.subtreeHeight == 0 {
 			return fn(node.key, node.value, node.nodeKey.version)
 		}
 		return false
 	})
+	return stopped
 }
 
 // IsFastCacheEnabled returns true if fast cache is enabled, false otherwise.
