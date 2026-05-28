@@ -277,7 +277,7 @@ func benchmarkImport(b *testing.B, nodes int) {
 
 func TestImporterDataIntegrity(t *testing.T) {
 	// run multiple times to ensure the data integrity
-	tree := NewMutableTree(dbm.NewMemDB(), 0, false, NewNopLogger())
+	tree := NewMutableTree(dbm.NewMemDB(), 0, false, log.NewNopLogger())
 
 	// write more than maxBatchSize
 	for i := 0; i < maxBatchSize+1; i++ {
@@ -311,7 +311,7 @@ func TestImporterDataIntegrity(t *testing.T) {
 	tempDir := t.TempDir()
 	db, err := dbm.NewDB("importer-test", "goleveldb", tempDir)
 	require.NoError(t, err)
-	newTree := NewMutableTree(db, 0, false, NewNopLogger())
+	newTree := NewMutableTree(db, 0, false, log.NewNopLogger())
 	importer, err := newTree.Import(version)
 	require.NoError(t, err)
 
@@ -333,7 +333,7 @@ func TestImporterDataIntegrity(t *testing.T) {
 	// check if the tree is the same
 	db, err = dbm.NewDB("importer-test", "goleveldb", tempDir)
 	require.NoError(t, err)
-	newTree = NewMutableTree(db, 0, false, NewNopLogger())
+	newTree = NewMutableTree(db, 0, false, log.NewNopLogger())
 	_, err = newTree.LoadVersion(version)
 	require.NoError(t, err)
 	itree, err = newTree.GetImmutable(version)
