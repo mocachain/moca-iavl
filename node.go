@@ -716,30 +716,41 @@ func (node *Node) calcBalance(t *ImmutableTree) (int, error) {
 }
 
 // traverse is a wrapper over traverseInRange when we want the whole tree
-func (node *Node) traverse(t *ImmutableTree, ascending bool, cb func(*Node) bool) bool {
+func (node *Node) traverse(t *ImmutableTree, ascending bool, cb func(*Node) bool) (bool, error) {
 	return node.traverseInRange(t, nil, nil, ascending, false, false, func(node *Node) bool {
 		return cb(node)
 	})
 }
 
 // traversePost is a wrapper over traverseInRange when we want the whole tree post-order
-func (node *Node) traversePost(t *ImmutableTree, ascending bool, cb func(*Node) bool) bool {
+func (node *Node) traversePost(t *ImmutableTree, ascending bool, cb func(*Node) bool) (bool, error) {
 	return node.traverseInRange(t, nil, nil, ascending, false, true, func(node *Node) bool {
 		return cb(node)
 	})
 }
 
-func (node *Node) traverseInRange(tree *ImmutableTree, start, end []byte, ascending bool, inclusive bool, post bool, cb func(*Node) bool) bool {
+// traverseInRange walks the tree and invokes cb for each visited node.
+// It returns (stopped, err): stopped is true if cb returned true (caller-requested stop),
+// err is non-nil if the underlying traversal hit an error fetching a node from the nodeDB.
+// Callers MUST surface a non-nil error to their callers — historically this loop swallowed
+// the error (see cosmos/iavl#1041) which caused (*Exporter).export to ship truncated
+// snapshots reporting success.
+func (node *Node) traverseInRange(tree *ImmutableTree, start, end []byte, ascending bool, inclusive bool, post bool, cb func(*Node) bool) (bool, error) {
 	stop := false
 	t := node.newTraversal(tree, start, end, ascending, inclusive, post)
-	// TODO: figure out how to handle these errors
-	for node2, err := t.next(); node2 != nil && err == nil; node2, err = t.next() {
+	for {
+		node2, err := t.next()
+		if err != nil {
+			return stop, err
+		}
+		if node2 == nil {
+			return stop, nil
+		}
 		stop = cb(node2)
 		if stop {
-			return stop
+			return stop, nil
 		}
 	}
-	return stop
 }
 
 var (
