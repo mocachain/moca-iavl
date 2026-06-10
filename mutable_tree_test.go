@@ -55,7 +55,7 @@ func TestIterateConcurrency(t *testing.T) {
 				require.NoError(t, err)
 			}(i, j)
 		}
-		tree.Iterate(func(key []byte, value []byte) bool { //nolint:errcheck
+		tree.Iterate(func(_ []byte, _ []byte) bool { //nolint:errcheck
 			return false
 		})
 	}

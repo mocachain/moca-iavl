@@ -4,6 +4,7 @@ BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 DOCKER_BUF := docker run -v $(shell pwd):/workspace --workdir /workspace bufbuild/buf
 DOCKER := $(shell which docker)
 HTTPS_GIT := https://github.com/cosmos/iavl.git
+GO := GOTOOLCHAIN=go1.24.11 go
 
 PDFFLAGS := -pdf --nodefraction=0.1
 CMDFLAGS := -ldflags -X TENDERMINT_IAVL_COLORS_ON=on 
@@ -13,25 +14,25 @@ all: lint test install
 
 install:
 ifeq ($(COLORS_ON),)
-	go install ./cmd/iaviewer
+	$(GO) install ./cmd/iaviewer
 else
-	go install $(CMDFLAGS) ./cmd/iaviewer
+	$(GO) install $(CMDFLAGS) ./cmd/iaviewer
 endif
 .PHONY: install
 
 build:
 	@echo "--> Building iaviewer"
-	@go build $(LDFLAGS) ./cmd/iaviewer
+	@$(GO) build $(LDFLAGS) ./cmd/iaviewer
 .PHONY: build
 
 test-short:
 	@echo "--> Running go test"
-	@go test ./... $(LDFLAGS) -v --race --short
+	@$(GO) test ./... $(LDFLAGS) -v --race --short
 .PHONY: test-short
 
 test:
 	@echo "--> Running go test"
-	@go test ./... $(LDFLAGS) -v 
+	@$(GO) test ./... $(LDFLAGS) -v 
 .PHONY: test
 
 format:
@@ -40,55 +41,55 @@ format:
 .PHONY: format
 
 # look into .golangci.yml for enabling / disabling linters
-golangci_lint_cmd=golangci-lint
-golangci_version=v1.55.2
+golangci_lint_cmd=$(shell $(GO) env GOPATH)/bin/golangci-lint
+golangci_version=v1.64.8
 
 lint:
 	@echo "--> Running linter"
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(golangci_version)
-	@$(golangci_lint_cmd) run --timeout=10m
+	@$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(golangci_version)
+	@$(golangci_lint_cmd) run --timeout=10m --concurrency 2
 
 lint-fix:
 	@echo "--> Running linter"
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(golangci_version)
-	@$(golangci_lint_cmd) run --fix --out-format=tab --issues-exit-code=0
+	@$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(golangci_version)
+	@$(golangci_lint_cmd) run --fix --out-format=tab --issues-exit-code=0 --concurrency 2
 
 # bench is the basic tests that shouldn't crash an aws instance
 bench:
 	cd benchmarks && \
-		go test $(LDFLAGS) -tags pebbledb -run=NOTEST -bench=Small . && \
-		go test $(LDFLAGS) -tags pebbledb -run=NOTEST -bench=Medium . && \
-		go test $(LDFLAGS) -run=NOTEST -bench=RandomBytes .
+		$(GO) test $(LDFLAGS) -tags pebbledb -run=NOTEST -bench=Small . && \
+		$(GO) test $(LDFLAGS) -tags pebbledb -run=NOTEST -bench=Medium . && \
+		$(GO) test $(LDFLAGS) -run=NOTEST -bench=RandomBytes .
 .PHONY: bench
 
 # fullbench is extra tests needing lots of memory and to run locally
 fullbench:
 	cd benchmarks && \
-		go test $(LDFLAGS) -run=NOTEST -bench=RandomBytes . && \
-		go test $(LDFLAGS) -tags rocksdb,pebbledb -run=NOTEST -bench=Small . && \
-		go test $(LDFLAGS) -tags rocksdb,pebbledb -run=NOTEST -bench=Medium . && \
-		go test $(LDFLAGS) -tags rocksdb,pebbledb -run=NOTEST -timeout=30m -bench=Large . && \
-		go test $(LDFLAGS) -run=NOTEST -bench=Mem . && \
-		go test $(LDFLAGS) -run=NOTEST -timeout=60m -bench=LevelDB .
+		$(GO) test $(LDFLAGS) -run=NOTEST -bench=RandomBytes . && \
+		$(GO) test $(LDFLAGS) -tags rocksdb,pebbledb -run=NOTEST -bench=Small . && \
+		$(GO) test $(LDFLAGS) -tags rocksdb,pebbledb -run=NOTEST -bench=Medium . && \
+		$(GO) test $(LDFLAGS) -tags rocksdb,pebbledb -run=NOTEST -timeout=30m -bench=Large . && \
+		$(GO) test $(LDFLAGS) -run=NOTEST -bench=Mem . && \
+		$(GO) test $(LDFLAGS) -run=NOTEST -timeout=60m -bench=LevelDB .
 .PHONY: fullbench
 
 # note that this just profiles the in-memory version, not persistence
 profile:
 	cd benchmarks && \
-		go test $(LDFLAGS) -bench=Mem -cpuprofile=cpu.out -memprofile=mem.out . && \
-		go tool pprof ${PDFFLAGS} benchmarks.test cpu.out > cpu.pdf && \
-		go tool pprof --alloc_space ${PDFFLAGS} benchmarks.test mem.out > mem_space.pdf && \
-		go tool pprof --alloc_objects ${PDFFLAGS} benchmarks.test mem.out > mem_obj.pdf
+		$(GO) test $(LDFLAGS) -bench=Mem -cpuprofile=cpu.out -memprofile=mem.out . && \
+		$(GO) tool pprof ${PDFFLAGS} benchmarks.test cpu.out > cpu.pdf && \
+		$(GO) tool pprof --alloc_space ${PDFFLAGS} benchmarks.test mem.out > mem_space.pdf && \
+		$(GO) tool pprof --alloc_objects ${PDFFLAGS} benchmarks.test mem.out > mem_obj.pdf
 .PHONY: profile
 
 explorecpu:
 	cd benchmarks && \
-		go tool pprof benchmarks.test cpu.out
+		$(GO) tool pprof benchmarks.test cpu.out
 .PHONY: explorecpu
 
 exploremem:
 	cd benchmarks && \
-		go tool pprof --alloc_objects benchmarks.test mem.out
+		$(GO) tool pprof --alloc_objects benchmarks.test mem.out
 .PHONY: exploremem
 
 delve:

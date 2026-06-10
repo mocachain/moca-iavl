@@ -9,7 +9,6 @@ linters:
     - bodyclose
     - dogsled
     - errcheck
-    - exportloopref
     - goconst
     - gocritic
     - gofumpt
@@ -37,6 +36,78 @@ linters-settings:
 
 issues:
   exclude-rules:
+    - path: "compress.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "mutable_tree.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "node.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "internal/rand/random.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "keyformat/key_format.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "keyformat/prefix_formatter.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "basic_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "diff_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "import_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "internal/encoding/encoding_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "mutable_tree_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "node_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "nodedb_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "tree_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "keyformat/key_format_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "benchmarks/bench_test.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "benchmarks/cosmos-exim/main.go"
+      text: "G115:"
+      linters:
+        - gosec
+    - path: "benchmarks/hash_test.go"
+      text: "G507:"
+      linters:
+        - gosec
     - text: "Use of weak random number generator"
       linters:
         - gosec

@@ -32,10 +32,12 @@ func main() {
 	removalVersion, err := strconv.Atoi(args[4])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Invalid removal version number: %s\n", err)
+		os.Exit(1)
 	}
 
 	if err = GenerateTree(args[0], args[1], args[2], version, removalVersion); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating tree: %s\n", err)
+		os.Exit(1)
 	}
 }
 
