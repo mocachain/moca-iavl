@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"testing"
 
 	"cosmossdk.io/log"
@@ -29,17 +30,18 @@ func createLegacyTree(t *testing.T, dbDir string, version int) (string, error) {
 		}
 	}
 
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("./cmd/legacydump/legacydump %s %s random %d %d", dbType, relateDir, version, version/2)) //nolint:gosec
+	cmd := exec.Command("go", "run", ".", dbType, relateDir, "random", strconv.Itoa(version), strconv.Itoa(version/2))
+	cmd.Dir = "./cmd/legacydump"
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	if err != nil || stderr.Len() > 0 {
+	if stderr.Len() > 0 {
+		t.Log(stderr.String())
+	}
+	if err != nil {
 		t.Log(fmt.Sprint(err) + ": " + stderr.String())
-		if err == nil {
-			err = fmt.Errorf("stderr: %s", stderr.String())
-		}
 	}
 	t.Log("Result: " + out.String())
 

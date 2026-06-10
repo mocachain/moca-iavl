@@ -9,7 +9,6 @@ linters:
     - bodyclose
     - dogsled
     - errcheck
-    - exportloopref
     - goconst
     - gocritic
     - gofumpt
@@ -37,6 +36,13 @@ linters-settings:
 
 issues:
   exclude-rules:
+    - text: "G115:"
+      linters:
+        - gosec
+    - path: "benchmarks/hash_test.go"
+      text: "G507:"
+      linters:
+        - gosec
     - text: "Use of weak random number generator"
       linters:
         - gosec
