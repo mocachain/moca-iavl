@@ -35,7 +35,7 @@ const (
 	fastStorageVersionDelimiter = "-"
 	// Using semantic versioning: https://semver.org/
 	defaultStorageVersionValue = "1.0.0"
-	fastStorageVersionValue    = "1.1.0"
+	fastStorageVersionValue    = "1.1.1"
 	fastNodeCacheSize          = 100000
 )
 
